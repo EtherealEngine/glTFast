@@ -51,6 +51,14 @@ namespace GLTFast.Export {
             m_OccTexture = occlusionTexture;
             m_SmoothnessTexture = smoothnessTexture;
         }
+
+        public bool notEmpty
+        {
+            get
+            {
+                return m_Texture != null || m_SmoothnessTexture != null || m_OccTexture != null;
+            }
+        }
         
         /// <inheritdoc />
         public override string fileName {

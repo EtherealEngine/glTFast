@@ -15,6 +15,7 @@
 
 using System;
 using GLTFast.Materials;
+using EtherealEngine;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -43,17 +44,19 @@ namespace GLTFast.Export {
 #endif
         const string k_KeywordSmoothnessTextureAlbedoChannelA = "_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A";
 		    
-        static readonly int k_EmissionColor = Shader.PropertyToID("_EmissionColor");
-        static readonly int k_EmissionMap = Shader.PropertyToID("_EmissionMap");
-        static readonly int k_BumpMap = Shader.PropertyToID("_BumpMap");
-        static readonly int k_OcclusionMap = Shader.PropertyToID("_OcclusionMap");
-        static readonly int k_BaseMap = Shader.PropertyToID("_BaseMap");
+        static readonly int k_EmissionColor = Shader.PropertyToID("emissiveFactor");
+        static readonly int k_EmissionMap = Shader.PropertyToID("emissiveTexture");
+        static readonly int k_BumpMap = Shader.PropertyToID("normalTexture");
+        static readonly int k_OcclusionMap = Shader.PropertyToID("occlusionTexture");
+        static readonly int k_BaseMap = Shader.PropertyToID("baseColorTexture");
         static readonly int k_ColorTexture = Shader.PropertyToID("_ColorTexture");
-        static readonly int k_TintColor = Shader.PropertyToID("_TintColor");
-        static readonly int k_MetallicGlossMap = Shader.PropertyToID("_MetallicGlossMap");
-        static readonly int k_Glossiness = Shader.PropertyToID("_Glossiness");
+        static readonly int k_TintColor = Shader.PropertyToID("baseColorFactor");
+        static readonly int k_MetallicGlossMap = Shader.PropertyToID("metallicRoughnessTexture");
+        static readonly int k_Glossiness = Shader.PropertyToID("roughnessFactor");
+        static readonly int k_Metalness = Shader.PropertyToID("metallicFactor");
         static readonly int k_GlossMapScale = Shader.PropertyToID("_GlossMapScale");
-
+        static readonly int k_LightMap = Shader.PropertyToID("lightMapTexture");
+        static readonly int k_LightMapIntensity = Shader.PropertyToID("lightMapIntensity");
         /// <summary>
         /// Converts a Unity material to a glTF material. 
         /// </summary>
@@ -211,7 +214,7 @@ namespace GLTFast.Export {
                 }
             }
 
-            if (ormImageExport != null && material.pbrMetallicRoughness != null) {
+            if (ormImageExport != null && ormImageExport.notEmpty && material.pbrMetallicRoughness != null) {
                 if (AddImageExport(gltf, ormImageExport, out var ormTextureId)) {
                     if (material.pbrMetallicRoughness.metallicRoughnessTexture != null) {
                         material.pbrMetallicRoughness.metallicRoughnessTexture.index = ormTextureId;
@@ -232,6 +235,24 @@ namespace GLTFast.Export {
             if (material.occlusionTexture != null) {
                 if (uMaterial.HasProperty(MaterialGenerator.occlusionTextureStrengthPropId)) {
                     material.occlusionTexture.strength = uMaterial.GetFloat(MaterialGenerator.occlusionTextureStrengthPropId);
+                }
+            }
+
+            if (uMaterial.HasProperty(k_LightMap))
+            {
+                if(AddImageExport(gltf, new ImageExport(uMaterial.GetTexture(k_LightMap) as Texture2D, ImageExportBase.Format.Jpg), out int textureId))
+                {
+                    Texture lightmapTexture = gltf.GetTexture(textureId);
+                    if (material.extensions == null) material.extensions = new MaterialExtension();
+                    var mozLightMap = new MOZ_lightmap
+                    {
+                        intensity = uMaterial.GetFloat(k_LightMapIntensity),
+                        index = textureId,
+                        texCoord = 1,
+                        offset = uMaterial.GetTextureOffset(k_LightMap),
+                        scale  = uMaterial.GetTextureScale(k_LightMap)
+                    };
+                    material.extensions.MOZ_lightmap = mozLightMap;
                 }
             }
 
@@ -305,7 +326,10 @@ namespace GLTFast.Export {
                     }
                 }
             }
-
+            if (uMaterial.HasProperty(k_Metalness))
+            {
+                pbr.metallicFactor = uMaterial.GetFloat(k_Metalness);
+            } else
             if (uMaterial.HasProperty(k_Metallic) && !HasMetallicGlossMap(uMaterial)) {
                 pbr.metallicFactor = uMaterial.GetFloat(k_Metallic);
             }
@@ -326,7 +350,7 @@ namespace GLTFast.Export {
                         pbr.metallicRoughnessTexture = pbr.metallicRoughnessTexture ?? new TextureInfo();
                         ormImageExport.SetMetalGlossTexture(mrTex2d);
                         if (HasMetallicGlossMap(uMaterial))
-                            pbr.metallicFactor = 1.0f;
+                            //pbr.metallicFactor = 1.0f;
                         ExportTextureTransform(pbr.metallicRoughnessTexture, uMaterial, k_MetallicGlossMap, gltf);
                     } else {
                         logger?.Error(LogCode.TextureInvalidType, "metallic/gloss", uMaterial.name );
@@ -334,6 +358,8 @@ namespace GLTFast.Export {
                     }
                 }
             }
+
+            
 
             if (uMaterial.IsKeywordEnabled(k_KeywordSmoothnessTextureAlbedoChannelA)) {
                 var smoothnessTex = uMaterial.GetTexture(mainTexProperty) as Texture2D;

@@ -133,6 +133,11 @@ namespace GLTFast {
                         if (fake.KHR_materials_sheen == null) {
                             mat.extensions.KHR_materials_sheen = null;
                         }
+
+                        if (fake.MOZ_lightmap == null)
+                        {
+                            mat.extensions.MOZ_lightmap = null;
+                        }
                     }
                 }
 

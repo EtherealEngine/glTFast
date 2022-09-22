@@ -17,6 +17,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Unity.Mathematics;
 using UnityEngine;
+using GLTFast.Schema;
 
 namespace GLTFast.Export {
     
@@ -50,7 +51,7 @@ namespace GLTFast.Export {
         /// <param name="uMesh">Unity mesh to be assigned and exported</param>
         /// <param name="materialIds">glTF materials IDs to be assigned
         /// (multiple in case of sub-meshes)</param>
-        void AddMeshToNode(int nodeId, Mesh uMesh, int[] materialIds);
+        void AddMeshToNode(int nodeId, UnityEngine.Mesh uMesh, int[] materialIds);
 
         /// <summary>
         /// Adds a Unity material 
@@ -68,6 +69,7 @@ namespace GLTFast.Export {
         /// <returns>glTF image index</returns>
         int AddImage(ImageExportBase imageExport);
 
+        Schema.Image GetImage(int imageId);
         /// <summary>
         /// Creates a glTF texture from with a given image index
         /// </summary>
@@ -75,6 +77,8 @@ namespace GLTFast.Export {
         /// <param name="samplerId">glTF sampler index returned by <seealso cref="AddSampler"/></param>
         /// <returns>glTF texture index</returns>
         int AddTexture(int imageId, int samplerId);
+
+        Schema.Texture GetTexture(int textureId);
 
         /// <summary>
         /// Creates a glTF sampler based on Unity filter and wrap settings

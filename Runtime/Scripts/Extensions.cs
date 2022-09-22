@@ -51,6 +51,7 @@ namespace GLTFast {
         /// <see href="https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_texture_transform/README.md">KHR_texture_transform</see> glTF extension
         /// </summary>
         TextureTransform,
+        MozLightmap,
     }
     
     /// <summary>
@@ -97,7 +98,8 @@ namespace GLTFast {
         /// <see href="https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_lights_punctual">KHR_lights_punctual</see> glTF extension
         /// </summary>
         public const string LightsPunctual = "KHR_lights_punctual";
-        
+        public const string MozLightmap = "MOZ_lightmap";
+
         /// <summary>
         /// Returns the official name of the glTF extension
         /// </summary>
@@ -121,6 +123,8 @@ namespace GLTFast {
                     return TextureBasisUniversal;
                 case Extension.TextureTransform:
                     return TextureTransform;
+                case Extension.MozLightmap:
+                    return MozLightmap;
                 default:
                     return null;
             }

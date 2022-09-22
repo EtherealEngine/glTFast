@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
+using EtherealEngine;
 
 namespace GLTFast.Schema {
 
@@ -39,9 +40,13 @@ namespace GLTFast.Schema {
         
         /// <inheritdoc cref="PbrSpecularGlossiness"/>
         public Sheen KHR_materials_sheen;
-        
+
         // ReSharper restore InconsistentNaming
-        
+        ////////////////////////////////
+        // ETHEREAL ENGINE EXTENSIONS //
+        ////////////////////////////////
+        public MOZ_lightmap MOZ_lightmap;
+
         internal void GltfSerialize(JsonWriter writer) {
             writer.AddObject();
             if(KHR_materials_pbrSpecularGlossiness!=null) {
@@ -63,6 +68,11 @@ namespace GLTFast.Schema {
             if(KHR_materials_sheen!=null) {
                 writer.AddProperty("KHR_materials_sheen");
                 KHR_materials_sheen.GltfSerialize(writer);
+            }
+            if (MOZ_lightmap != null)
+            {
+                writer.AddProperty("MOZ_lightmap");
+                MOZ_lightmap.GltfSerialize(writer);
             }
             writer.Close();
         }

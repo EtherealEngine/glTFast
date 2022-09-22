@@ -264,6 +264,20 @@ namespace GLTFast.Export {
             return -1;
 #endif
         }
+
+        public Material GetMaterial(int materialId)
+        {
+            return m_Materials[materialId];
+        }
+        public Texture GetTexture(int textureId)
+        {
+            return m_Textures[textureId];
+        }
+
+        public Image GetImage(int imageId)
+        {
+            return m_Images[imageId];
+        }
         
         /// <inheritdoc />
         public int AddSampler(FilterMode filterMode, TextureWrapMode wrapModeU, TextureWrapMode wrapModeV) {
