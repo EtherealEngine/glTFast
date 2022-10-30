@@ -54,6 +54,20 @@ namespace GLTFast.Export {
         void AddMeshToNode(int nodeId, UnityEngine.Mesh uMesh, int[] materialIds);
 
         /// <summary>
+        /// Assigns a camera to a previously added node
+        /// </summary>
+        /// <param name="nodeId">Index of the node to add the mesh to</param>
+        /// <param name="cameraId">glTF camera ID to be assigned</param>
+        void AddCameraToNode(int nodeId, int cameraId);
+        
+        /// <summary>
+        /// Assigns a light to a previously added node
+        /// </summary>
+        /// <param name="nodeId">Index of the node to add the mesh to</param>
+        /// <param name="lightId">glTF light ID to be assigned</param>
+        void AddLightToNode(int nodeId, int lightId);
+        
+        /// <summary>
         /// Adds a Unity material 
         /// </summary>
         /// <param name="uMaterial">Unity material</param>
@@ -88,6 +102,23 @@ namespace GLTFast.Export {
         /// <param name="wrapModeV">Texture wrap mode in V direction</param>
         /// <returns>glTF sampler index or -1 if no sampler is required</returns>
         int AddSampler(FilterMode filterMode, TextureWrapMode wrapModeU, TextureWrapMode wrapModeV);
+
+        /// <summary>
+        /// Creates a glTF camera based on a Unity camera
+        /// </summary>
+        /// <param name="uCamera">Unity camera</param>
+        /// <param name="cameraId">glTF camera index</param>
+        /// <returns>True if camera was successfully created, false otherwise</returns>
+        bool AddCamera(Camera uCamera, out int cameraId);
+        
+        /// <summary>
+        /// Creates a glTF light based on a Unity light
+        /// Uses the KHR_lights_punctual extension.
+        /// </summary>
+        /// <param name="uLight">Unity light</param>
+        /// <param name="lightId">glTF light index</param>
+        /// <returns>True if light was successfully created, false otherwise</returns>
+        bool AddLight(Light uLight, out int lightId);
 
         /// <summary>
         /// Adds a scene to the glTF

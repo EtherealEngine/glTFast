@@ -207,6 +207,8 @@ namespace GLTFast.Schema {
         public int TEXCOORD_6 = -1;
         /// <summary>Texture coordinates accessor index (eighth UV set).</summary>
         public int TEXCOORD_7 = -1;
+        /// <summary>Texture coordinates accessor index (ninth UV set).</summary>
+        public int TEXCOORD_8 = -1;
         /// <summary>Vertex color accessor index.</summary>
         public int COLOR_0 = -1;
         /// <summary>Bone joints accessor index.</summary>
@@ -234,6 +236,12 @@ namespace GLTFast.Schema {
                 && TANGENT==b.TANGENT
                 && TEXCOORD_0==b.TEXCOORD_0
                 && TEXCOORD_1==b.TEXCOORD_1
+                && TEXCOORD_2==b.TEXCOORD_2
+                && TEXCOORD_3==b.TEXCOORD_3
+                && TEXCOORD_4==b.TEXCOORD_4
+                && TEXCOORD_5==b.TEXCOORD_5
+                && TEXCOORD_6==b.TEXCOORD_6
+                && TEXCOORD_7==b.TEXCOORD_7
                 && COLOR_0==b.COLOR_0
                 ;
         }

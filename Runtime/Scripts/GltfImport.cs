@@ -17,6 +17,12 @@
 #define GLTFAST_THREADS
 #endif
 
+#if KTX_UNITY_2_2_OR_NEWER || (!UNITY_2021_2_OR_NEWER && KTX_UNITY_1_3_OR_NEWER)
+#define KTX
+#elif KTX_UNITY
+#warning You have to update KtxUnity to enable support for KTX textures in glTFast
+#endif
+
 // #define MEASURE_TIMINGS
 
 using System;
@@ -37,6 +43,9 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using Debug = UnityEngine.Debug;
 using Object = UnityEngine.Object;
+#if KTX
+using KtxUnity;
+#endif
 #if MESHOPT
 using Meshoptimizer;
 #endif
@@ -96,7 +105,7 @@ namespace GLTFast {
 #if DRACO_UNITY
             ExtensionName.DracoMeshCompression,
 #endif
-#if KTX_UNITY
+#if KTX
             ExtensionName.TextureBasisUniversal,
 #endif // KTX_UNITY
 #if MESHOPT
@@ -139,7 +148,7 @@ namespace GLTFast {
         GlbBinChunk[] binChunks;
 
         Dictionary<int,Task<IDownload>> downloadTasks;
-#if KTX_UNITY
+#if KTX
         Dictionary<int,Task<IDownload>> ktxDownloadTasks;
 #endif
         Dictionary<int,TextureDownloadBase> textureDownloadTasks;
@@ -153,11 +162,11 @@ namespace GLTFast {
         /// Array of dictionaries, indexed by mesh ID
         /// The dictionary contains all the mesh's primitives, clustered
         /// by Vertex Attribute and Morph Target usage (Primitives with identical vertex
-        /// data will be clustered; see MeshPrimitive.Equals).
+        /// data will be clustered; <see cref="MeshPrimitive.Equals"/>).
         /// </summary>
         Dictionary<MeshPrimitive,List<MeshPrimitive>>[] meshPrimitiveCluster;
         List<ImageCreateContext> imageCreateContexts;
-#if KTX_UNITY
+#if KTX
         List<KtxLoadContextBase> ktxLoadContextsBuffer;
 #endif // KTX_UNITY
 
@@ -191,11 +200,10 @@ namespace GLTFast {
 #endif
 
         /// <summary>
-        /// Unity's animation system addresses target GameObjects by hierarchical name.
-        /// To make sure names are consistent and have no conflicts they are precalculated
-        /// and stored in this array.
+        /// Material IDs of materials that require points topology support.
         /// </summary>
-        string[] nodeNames;
+        HashSet<int> materialPointsSupport;
+        bool defaultMaterialPointsSupport;
         
 #endregion VolatileData
 
@@ -212,6 +220,13 @@ namespace GLTFast {
         UnityEngine.Material[] materials;
         List<UnityEngine.Object> resources;
 
+        /// <summary>
+        /// Unity's animation system addresses target GameObjects by hierarchical name.
+        /// To make sure names are consistent and have no conflicts they are precalculated
+        /// and stored in this array.
+        /// </summary>
+        string[] nodeNames;
+        
         Primitive[] primitives;
         int[] meshPrimitiveIndex;
         Matrix4x4[][] skinsInverseBindMatrices;
@@ -504,28 +519,27 @@ namespace GLTFast {
         /// There can be no instantiation or other element access afterwards.
         /// </summary>
         public void Dispose() {
-            if(materials!=null) {
-                foreach( var material in materials ) {
-                    SafeDestroy(material);
+
+            nodeNames = null;
+
+            void DisposeArray(  IEnumerable<Object> objects) {
+                if(objects!=null) {
+                    foreach( var obj in objects ) {
+                        SafeDestroy(obj);
+                    }
                 }
-                materials = null;
             }
             
+            DisposeArray(materials);
+            materials = null;
+            
 #if UNITY_ANIMATION
-            if (animationClips != null) {
-                foreach( var clip in animationClips ) {
-                    SafeDestroy(clip);
-                }
-                animationClips = null;
-            }
+            DisposeArray(animationClips);
+            animationClips = null;
 #endif
 
-            if(textures!=null) {
-                foreach( var texture in textures ) {
-                    SafeDestroy(texture);
-                }
-                textures = null;
-            }
+            DisposeArray(textures);
+            textures = null;
 
             if (accessorData != null) {
                 foreach (var ad in accessorData) {
@@ -534,12 +548,8 @@ namespace GLTFast {
                 accessorData = null;
             }
             
-            if(resources!=null) {
-                foreach( var resource in resources ) {
-                    SafeDestroy(resource);
-                }
-                resources = null;
-            }
+            DisposeArray(resources);
+            resources = null;
         }
 
         /// <summary>
@@ -576,30 +586,27 @@ namespace GLTFast {
             return gltfRoot?.scenes?[sceneIndex]?.name;
         }
         
-        /// <summary>
-        /// Get a Unity Material by its glTF material index 
-        /// </summary>
-        /// <param name="index">glTF material index</param>
-        /// <returns>Corresponding Unity Material</returns>
-        public UnityEngine.Material GetMaterial( int index = 0 ) {
-            if(materials!=null && index >= 0 && index < materials.Length ) {
+        /// <inheritdoc />
+        public UnityEngine.Material GetMaterial(int index = 0) {
+            if (materials != null && index >= 0 && index < materials.Length) {
                 return materials[index];
             }
             return null;
         }
 
-        /// <summary>
-        /// Returns a fallback default material that is provided by the IMaterialGenerator
-        /// </summary>
-        /// <returns></returns>
+        /// <inheritdoc />
         public UnityEngine.Material GetDefaultMaterial() {
 #if UNITY_EDITOR
             if (defaultMaterial == null) {
-                defaultMaterial = materialGenerator.GetDefaultMaterial();
+                materialGenerator.SetLogger(logger);
+                defaultMaterial = materialGenerator.GetDefaultMaterial(defaultMaterialPointsSupport);
+                materialGenerator.SetLogger(null);
             }
             return defaultMaterial;
 #else
-            return materialGenerator.GetDefaultMaterial();
+            materialGenerator.SetLogger(logger);
+            return materialGenerator.GetDefaultMaterial(defaultMaterialPointsSupport);
+            materialGenerator.SetLogger(null);
 #endif
         }
         
@@ -781,7 +788,7 @@ namespace GLTFast {
                 textureDownloadTasks.Clear();
             }
             
-#if KTX_UNITY
+#if KTX
             if (ktxDownloadTasks != null) {
                 success = success && await WaitForKtxDownloads();
                 ktxDownloadTasks.Clear();
@@ -945,7 +952,7 @@ namespace GLTFast {
                     }
                 }
 
-#if KTX_UNITY
+#if KTX
                 // Derive image type from texture extension
                 for (int i = 0; i < gltfRoot.textures.Length; i++) {
                     var texture = gltfRoot.textures[i];
@@ -1123,7 +1130,7 @@ namespace GLTFast {
         }
 
 
-#if KTX_UNITY
+#if KTX
         async Task<bool> WaitForKtxDownloads() {
             var tasks = new Task<bool>[ktxDownloadTasks.Count];
             var i = 0;
@@ -1138,18 +1145,20 @@ namespace GLTFast {
             return true;
         }
         
-        async Task<bool> ProcessKtxDownload(int index, Task<IDownload> downloadTask) {
+        async Task<bool> ProcessKtxDownload(int imageIndex, Task<IDownload> downloadTask) {
             var www = await downloadTask;
             if(www.success) {
-                var ktxContext = new KtxLoadContext(index,www.data);
-                var forceSampleLinear = imageGamma!=null && !imageGamma[ktxContext.imageIndex];
-                var textureResult = await ktxContext.LoadKtx(forceSampleLinear);
-                images[ktxContext.imageIndex] = textureResult.texture;
-                return true;
+                var ktxContext = new KtxLoadContext(imageIndex,www.data);
+                var forceSampleLinear = imageGamma!=null && !imageGamma[imageIndex];
+                var result = await ktxContext.LoadTexture2D(forceSampleLinear);
+                if (result.errorCode == ErrorCode.Success) {
+                    images[imageIndex] = result.texture;
+                    return true;
+                }
             } else {
-                logger?.Error(LogCode.TextureDownloadFailed,www.error,index.ToString());
-                return false;
+                logger?.Error(LogCode.TextureDownloadFailed,www.error,imageIndex.ToString());
             }
+            return false;
         }
 #endif // KTX_UNITY
 
@@ -1212,7 +1221,7 @@ namespace GLTFast {
             Profiler.BeginSample("LoadTexture");
 
             if(isKtx) {
-#if KTX_UNITY
+#if KTX
                 var downloadTask = downloadProvider.Request(url);
                 if(ktxDownloadTasks==null) {
                     ktxDownloadTasks = new Dictionary<int, Task<IDownload>>();
@@ -1459,7 +1468,7 @@ namespace GLTFast {
                     Assert.AreEqual(images.Length,gltfRoot.images.Length);
                 }
                 imageCreateContexts = new List<ImageCreateContext>();
-#if KTX_UNITY
+#if KTX
                 await
 #endif
                 CreateTexturesFromBuffers(gltfRoot.images,gltfRoot.bufferViews,imageCreateContexts);
@@ -1491,23 +1500,9 @@ namespace GLTFast {
                 await CreatePrimitiveContexts(gltfRoot);
             }
 
-#if KTX_UNITY
+#if KTX
             if(ktxLoadContextsBuffer!=null) {
-
-                var ktxTasks = new Task<KtxUnity.TextureResult>[ktxLoadContextsBuffer.Count];
-                for (var i = 0; i < ktxLoadContextsBuffer.Count; i++) {
-                    var ktx = ktxLoadContextsBuffer[i];
-                    var forceSampleLinear = imageGamma!=null && !imageGamma[ktx.imageIndex];
-                    ktxTasks[i] = ktx.LoadKtx(forceSampleLinear);
-                    await deferAgent.BreakPoint();
-                }
-                await Task.WhenAll(ktxTasks);
-
-                for (var i = 0; i < ktxLoadContextsBuffer.Count; i++) {
-                    var ktx = ktxLoadContextsBuffer[i];
-                    images[ktx.imageIndex] = ktxTasks[i].Result.texture;
-                }
-                ktxLoadContextsBuffer.Clear();
+                await ProcessKtxLoadContexts();
             }
 #endif // KTX_UNITY
 
@@ -1581,11 +1576,17 @@ namespace GLTFast {
 
             if(gltfRoot.materials!=null) {
                 materials = new UnityEngine.Material[gltfRoot.materials.Length];
-                for(int i=0;i<materials.Length;i++) {
+                for(var i=0;i<materials.Length;i++) {
                     await deferAgent.BreakPoint(.0001f);
                     Profiler.BeginSample("GenerateMaterial");
                     materialGenerator.SetLogger(logger);
-                    materials[i] = materialGenerator.GenerateMaterial(gltfRoot.materials[i],this);
+                    var pointsSupport = GetMaterialPointsSupport(i);
+                    var material = materialGenerator.GenerateMaterial(
+                        gltfRoot.materials[i],
+                        this,
+                        pointsSupport
+                    );
+                    materials[i] = material;
                     materialGenerator.SetLogger(null);
                     Profiler.EndSample();
                 }
@@ -1759,6 +1760,26 @@ namespace GLTFast {
             return success;
         }
 
+        void SetMaterialPointsSupport(int materialIndex) {
+            Assert.IsNotNull(gltfRoot?.materials);
+            Assert.IsTrue(materialIndex>=0);
+            Assert.IsTrue(materialIndex<gltfRoot.materials.Length);
+            if (materialPointsSupport == null) {
+                materialPointsSupport = new HashSet<int>();
+            }
+            materialPointsSupport.Add(materialIndex);
+        }
+
+        bool GetMaterialPointsSupport(int materialIndex) {
+            if (materialPointsSupport != null) {
+                Assert.IsNotNull(gltfRoot?.materials);
+                Assert.IsTrue(materialIndex>=0);
+                Assert.IsTrue(materialIndex<gltfRoot.materials.Length);
+                return materialPointsSupport.Contains(materialIndex);
+            }
+            return false;
+        }
+        
         /// <summary>
         /// glTF nodes have no requirement to be named or have specific names.
         /// Some Unity systems like animation and importers require unique
@@ -1882,6 +1903,7 @@ namespace GLTFast {
             imageReadable = null;
             imageGamma = null;
             glbBinChunk = null;
+            materialPointsSupport = null;
             
 #if MESHOPT
             if(meshoptBufferViews!=null) {
@@ -2156,7 +2178,7 @@ namespace GLTFast {
 #endif
         }
 
-#if KTX_UNITY
+#if KTX
         async Task
 #else
         void
@@ -2184,7 +2206,7 @@ namespace GLTFast {
                     if (img.bufferView >= 0) {
                         
                         if(imgFormat == ImageFormat.KTX) {
-#if KTX_UNITY
+#if KTX
                             Profiler.BeginSample("CreateTexturesFromBuffers.KtxLoadNativeContext");
                             if(ktxLoadContextsBuffer==null) {
                                 ktxLoadContextsBuffer = new List<KtxLoadContextBase>();
@@ -2275,7 +2297,7 @@ namespace GLTFast {
             var perAttributeMeshCollection = new Dictionary<Attributes,HashSet<int>>();
 #endif
             
-            /// Iterate all primitive vertex attributes and remember the accessors usage.
+            // Iterate all primitive vertex attributes and remember the accessors usage.
             accessorUsage = new AccessorUsage[gltf.accessors.Length];
             int totalPrimitives = 0;
             for (int meshIndex = 0; meshIndex < meshCount; meshIndex++)
@@ -2350,6 +2372,15 @@ namespace GLTFast {
                     }
                     attributeMesh.Add(meshIndex);
 #endif
+
+                    if (primitive.material >= 0) {
+                        if (gltf.materials != null && primitive.mode == DrawMode.Points) {
+                            SetMaterialPointsSupport(primitive.material);
+                        }
+                    }
+                    else {
+                        defaultMaterialPointsSupport |= primitive.mode == DrawMode.Points;
+                    }
                 }
                 meshPrimitiveCluster[meshIndex] = cluster;
                 totalPrimitives += cluster.Count;
@@ -2414,12 +2445,36 @@ namespace GLTFast {
                 if (att.TEXCOORD_0 >= 0) {
                     int uvCount = 1;
                     if (att.TEXCOORD_1 >= 0) uvCount++;
+                    if (att.TEXCOORD_2 >= 0) uvCount++;
+                    if (att.TEXCOORD_3 >= 0) uvCount++;
+                    if (att.TEXCOORD_4 >= 0) uvCount++;
+                    if (att.TEXCOORD_5 >= 0) uvCount++;
+                    if (att.TEXCOORD_6 >= 0) uvCount++;
+                    if (att.TEXCOORD_7 >= 0) uvCount++;
                     uvInputs = new int[uvCount];
                     uvInputs[0] = att.TEXCOORD_0;
                     if (att.TEXCOORD_1 >= 0) {
                         uvInputs[1] = att.TEXCOORD_1;
                     }
                     if (att.TEXCOORD_2 >= 0) {
+                        uvInputs[2] = att.TEXCOORD_2;
+                    }
+                    if (att.TEXCOORD_3 >= 0) {
+                        uvInputs[3] = att.TEXCOORD_3;
+                    }
+                    if (att.TEXCOORD_4 >= 0) {
+                        uvInputs[4] = att.TEXCOORD_4;
+                    }
+                    if (att.TEXCOORD_5 >= 0) {
+                        uvInputs[5] = att.TEXCOORD_5;
+                    }
+                    if (att.TEXCOORD_6 >= 0) {
+                        uvInputs[6] = att.TEXCOORD_6;
+                    }
+                    if (att.TEXCOORD_7 >= 0) {
+                        uvInputs[7] = att.TEXCOORD_7;
+                    }
+                    if (att.TEXCOORD_8 >= 0) {
                         logger?.Warning(LogCode.UVLimit);
                     }
                 }
@@ -2759,7 +2814,6 @@ namespace GLTFast {
                 c.topology = MeshTopology.Points;
                 break;
             case DrawMode.Lines:
-                logger?.Error(LogCode.PrimitiveModeUnsupported,primitive.mode.ToString());
                 c.topology = MeshTopology.Lines;
                 break;
             case DrawMode.LineLoop:
@@ -3223,5 +3277,48 @@ namespace GLTFast {
                     return ImageFormat.Unknown;
             }
         }
+        
+#if KTX
+        struct KtxTranscodeTaskWrapper {
+            public int index;
+            public TextureResult result;
+        }
+
+        static async Task<KtxTranscodeTaskWrapper> KtxLoadAndTranscode(int index, KtxLoadContextBase ktx, bool linear) {
+            return new KtxTranscodeTaskWrapper {
+                index = index,
+                result = await ktx.LoadTexture2D(linear)
+            };
+        }
+        
+        async Task ProcessKtxLoadContexts() {
+            var maxCount = SystemInfo.processorCount+1;
+
+            var totalCount = ktxLoadContextsBuffer.Count;
+            var startedCount = 0;
+            var ktxTasks = new List<Task<KtxTranscodeTaskWrapper>>(maxCount);
+
+            while (startedCount < totalCount || ktxTasks.Count>0) {
+                while (ktxTasks.Count < maxCount && startedCount < totalCount) {
+                    var ktx = ktxLoadContextsBuffer[startedCount];
+                    var forceSampleLinear = imageGamma != null && !imageGamma[ktx.imageIndex];
+                    ktxTasks.Add(KtxLoadAndTranscode(startedCount, ktx, forceSampleLinear));
+                    startedCount++;
+                    await deferAgent.BreakPoint();
+                }
+                
+                var kTask = await Task.WhenAny(ktxTasks);
+                var i = kTask.Result.index;
+                if (kTask.Result.result.errorCode == ErrorCode.Success) {
+                    var ktx = ktxLoadContextsBuffer[i];
+                    images[ktx.imageIndex] = kTask.Result.result.texture;
+                    await deferAgent.BreakPoint();
+                }
+                ktxTasks.Remove(kTask);
+            }
+            
+            ktxLoadContextsBuffer.Clear();
+        }
+#endif
     }
 }
