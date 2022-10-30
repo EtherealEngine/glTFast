@@ -34,11 +34,16 @@ using UnityEngine.Assertions;
 using UnityEngine.Profiling;
 using UnityEngine.Rendering;
 using Buffer = GLTFast.Schema.Buffer;
+using Camera = GLTFast.Schema.Camera;
 using Debug = UnityEngine.Debug;
 using Material = GLTFast.Schema.Material;
 using Mesh = GLTFast.Schema.Mesh;
 using Sampler = GLTFast.Schema.Sampler;
 using Texture = GLTFast.Schema.Texture;
+
+#if USING_HDRP
+using UnityEngine.Rendering.HighDefinition;
+#endif
 
 #if DEBUG
 using System.Text;
@@ -94,6 +99,8 @@ namespace GLTFast.Export {
         List<Material> m_Materials;
         List<Texture> m_Textures;
         List<Image> m_Images;
+        List<Schema.Camera> m_Cameras;
+        List<LightPunctual> m_Lights;
         List<Sampler> m_Samplers;
         List<Accessor> m_Accessors;
         List<BufferView> m_BufferViews;
@@ -140,19 +147,8 @@ namespace GLTFast.Export {
         {
             CertifyNotDisposed();
             m_State = State.ContentAdded;
-            var node = new Node {
-                name = name,
-                children = children,
-            };
-            if( translation.HasValue && !translation.Equals(float3.zero) ) {
-                node.translation = new[] { -translation.Value.x, translation.Value.y, translation.Value.z };
-            }
-            if( rotation.HasValue && !rotation.Equals(quaternion.identity) ) {
-                node.rotation = new[] { rotation.Value.value.x, -rotation.Value.value.y, -rotation.Value.value.z, rotation.Value.value.w };
-            }
-            if( scale.HasValue && !scale.Equals(new float3(1f)) ) {
-                node.scale = new[] { scale.Value.x, scale.Value.y, scale.Value.z };
-            }
+            var node = CreateNode(translation, rotation, scale, name);
+            node.children = children;
             m_Nodes = m_Nodes ?? new List<Node>();
             m_Nodes.Add(node);
             return (uint) m_Nodes.Count - 1;
@@ -171,6 +167,167 @@ namespace GLTFast.Export {
             node.mesh = AddMesh(uMesh);
         }
 
+        /// <inheritdoc />
+        public bool AddCamera(UnityEngine.Camera uCamera, out int cameraId) {
+            CertifyNotDisposed();
+
+            var camera = new Camera();
+
+            if (uCamera.orthographic) {
+                camera.typeEnum = Camera.Type.Orthographic;
+                var oSize = uCamera.orthographicSize;
+                camera.orthographic = new CameraOrthographic {
+                    ymag = oSize,
+                    xmag = oSize * Screen.width / Screen.height,
+                    // TODO: Check if local scale should be applied to near/far
+                    znear = uCamera.nearClipPlane,
+                    zfar = uCamera.farClipPlane
+                };
+            }
+            else {
+                camera.typeEnum = Camera.Type.Perspective;
+                camera.perspective = new CameraPerspective {
+                    yfov = uCamera.fieldOfView * Mathf.Deg2Rad,
+                    // TODO: Check if local scale should be applied to near/far
+                    znear = uCamera.nearClipPlane,
+                    zfar = uCamera.farClipPlane
+                };
+            }
+            
+            if (m_Cameras == null) {
+                m_Cameras = new List<Camera>();
+            }
+            cameraId = m_Cameras.Count;
+            m_Cameras.Add(camera);
+            return true;
+        }
+
+        /// <inheritdoc />
+        public bool AddLight(Light uLight, out int lightId) {
+            CertifyNotDisposed();
+            var light = new LightPunctual {
+                name = uLight.name
+            };
+
+            switch (uLight.type) {
+                case LightType.Spot:
+                    light.typeEnum = LightPunctual.Type.Spot;
+                    light.spot = new SpotLight {
+                        outerConeAngle = uLight.spotAngle * Mathf.Deg2Rad * .5f,
+                        innerConeAngle = uLight.innerSpotAngle * Mathf.Deg2Rad * .5f
+                    };
+                    break;
+                case LightType.Directional:
+                    light.typeEnum = LightPunctual.Type.Directional;
+                    break;
+                case LightType.Point:
+                    light.typeEnum = LightPunctual.Type.Point;
+                    break;
+                case LightType.Area:
+                case LightType.Disc:
+                default:
+                    light.typeEnum = LightPunctual.Type.Spot;
+                    light.spot = new SpotLight {
+                        outerConeAngle = 45 * Mathf.Deg2Rad * .5f,
+                        innerConeAngle = 35 * Mathf.Deg2Rad * .5f
+                    };
+                    break;
+            }
+
+            light.lightColor = uLight.color.linear;
+            light.range = uLight.range;
+            
+            var renderPipeline = RenderPipelineUtils.renderPipeline;
+            switch (renderPipeline) {
+                case RenderPipeline.BuiltIn:
+                    light.intensity = uLight.intensity * Mathf.PI;
+                    break;
+                case RenderPipeline.Universal:
+                    light.intensity = uLight.intensity;
+                    break;
+#if USING_HDRP
+                case RenderPipeline.HighDefinition:
+                    var lightHd = uLight.gameObject.GetComponent<HDAdditionalLightData>();
+
+                    float GetIntensity(LightUnit unit) {
+                        if (lightHd.lightUnit == unit) {
+                            return lightHd.intensity;
+                        }
+                        // Workaround to get intensity in candela
+                        var oldUnit = lightHd.lightUnit;
+                        lightHd.lightUnit = unit;
+                        var result = lightHd.intensity;
+                        lightHd.lightUnit = oldUnit;
+                        return result;
+                    }
+
+                    if (lightHd == null) {
+                        light.intensity = uLight.intensity;
+                    }
+                    else {
+                        switch (lightHd.type) {
+                            case HDLightType.Spot:
+                            case HDLightType.Point:
+                                light.intensity = GetIntensity(LightUnit.Candela);
+                                break;
+                            case HDLightType.Directional:
+                                light.intensity = GetIntensity(LightUnit.Lux);
+                                break;
+                            case HDLightType.Area:
+                            default:
+                                light.intensity = lightHd.intensity;
+                                break;
+                        }
+                    }
+                    break;
+#endif
+                default:
+                    light.intensity = uLight.intensity;
+                    break;
+            }
+
+            light.intensity *= m_Settings.lightIntensityFactor;
+            
+            if (m_Lights == null) {
+                m_Lights = new List<LightPunctual>();
+            }
+            lightId = m_Lights.Count;
+            m_Lights.Add(light);
+            return true;
+        }
+        
+        /// <inheritdoc />
+        public void AddCameraToNode(int nodeId, int cameraId) {
+            CertifyNotDisposed();
+            // glTF cameras face in the opposite direction, so we create a
+            // helper node that applies the correct rotation.
+            // TODO: Detect if this is node is already a helper node
+            //       (from glTF import) and discard it (if possible) to enable
+            //       lossless round-trips
+            var parent = m_Nodes[nodeId];
+            var node = AddChildNode(nodeId, rotation: quaternion.RotateY(math.PI), name:$"{parent.name}_Orientation");
+            node.camera = cameraId;
+        }
+        
+        /// <inheritdoc />
+        public void AddLightToNode(int nodeId, int lightId) {
+            CertifyNotDisposed();
+            var node = m_Nodes[nodeId];
+            var light = m_Lights[lightId];
+            if (light.typeEnum != LightPunctual.Type.Point) {
+                // glTF lights face in the opposite direction, so we create a
+                // helper node that applies the correct rotation.
+                // TODO: Detect if this is node is already a helper node
+                //       (from glTF import) and discard it (if possible) to enable
+                //       lossless round-trips
+                node = AddChildNode(nodeId, rotation: quaternion.RotateY(math.PI), name:$"{node.name}_Orientation");
+            }
+            node.extensions = node.extensions ?? new NodeExtensions();
+            node.extensions.KHR_lights_punctual = new NodeLightsPunctual {
+                light = lightId
+            };
+        }
+        
         /// <inheritdoc />
         public uint AddScene(uint[] nodes, string name = null) {
             CertifyNotDisposed();
@@ -525,7 +682,15 @@ namespace GLTFast.Export {
             m_Gltf.images = m_Images?.ToArray();
             m_Gltf.textures = m_Textures?.ToArray();
             m_Gltf.samplers = m_Samplers?.ToArray();
+            m_Gltf.cameras = m_Cameras?.ToArray();
 
+            if (m_Lights != null && m_Lights.Count > 0) {
+                RegisterExtensionUsage(Extension.LightsPunctual);
+                m_Gltf.extensions = m_Gltf.extensions ?? new Schema.RootExtension();
+                m_Gltf.extensions.KHR_lights_punctual = m_Gltf.extensions.KHR_lights_punctual ?? new LightsPunctual();
+                m_Gltf.extensions.KHR_lights_punctual.lights = m_Lights.ToArray();
+            }
+            
             m_Gltf.asset = new Asset {
                 version = "2.0",
                 generator = $"Unity {Application.unityVersion} glTFast {Constants.version}"
@@ -543,6 +708,7 @@ namespace GLTFast.Export {
                 var i = 0;
                 foreach (var extension in m_ExtensionsRequired) {
                     var name = extension.GetName();
+                    Assert.IsFalse(string.IsNullOrEmpty(name));
                     m_Gltf.extensionsRequired[i] = name;
                     m_Gltf.extensionsUsed[i] = name;
                     i++;
@@ -1457,6 +1623,52 @@ namespace GLTFast.Export {
             }
         }
 
+        Node AddChildNode(
+            int parentId,
+            float3? translation = null,
+            quaternion? rotation = null,
+            float3? scale = null,
+            string name = null
+        ) {
+            var parent = m_Nodes[parentId];
+            var node = CreateNode(translation, rotation, scale, name);
+            m_Nodes.Add(node);
+            var nodeId = (uint) m_Nodes.Count - 1;
+            if (parent.children == null) {
+                parent.children = new[] { nodeId };
+            }
+            else {
+                var newChildren = new uint[parent.children.Length + 1];
+                newChildren[0] = nodeId;
+                parent.children.CopyTo(newChildren,1);
+                parent.children = newChildren;
+            }
+            return node;
+        }
+        
+        Node CreateNode(
+            float3? translation = null,
+            quaternion? rotation = null,
+            float3? scale = null,
+            string name = null
+        )
+        {
+            var node = new Node {
+                name = name,
+            };
+            if( translation.HasValue && !translation.Equals(float3.zero) ) {
+                node.translation = new[] { -translation.Value.x, translation.Value.y, translation.Value.z };
+            }
+            if( rotation.HasValue && !rotation.Equals(quaternion.identity) ) {
+                node.rotation = new[] { rotation.Value.value.x, -rotation.Value.value.y, -rotation.Value.value.z, rotation.Value.value.w };
+            }
+            if( scale.HasValue && !scale.Equals(new float3(1f)) ) {
+                node.scale = new[] { scale.Value.x, scale.Value.y, scale.Value.z };
+            }
+
+            return node;
+        }
+        
         int AddMesh(UnityEngine.Mesh uMesh) {
             int meshId;
             
