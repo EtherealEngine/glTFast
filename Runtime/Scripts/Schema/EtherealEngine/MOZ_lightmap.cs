@@ -29,11 +29,9 @@ namespace EtherealEngine
             writer.AddObject();
             float[] offsetVals = !(float.IsNaN(offset.x) || float.IsNaN(offset.y)) ?
                 new float[] { offset.x, 1 - offset.y } : 
-                //new float[] { offset.x, offset.y } :
                 new float[] { 0, 0 };
             float[] scaleVals = !(float.IsNaN(scale.x) || float.IsNaN(scale.y)) ? 
-                //new float[] { scale.x, -scale.y } : 
-                new float[] { scale.x, -scale.y } :
+                new float[] { scale.x, -scale.y } : 
                 new float[] { 1, 1 };
             writer.AddArrayProperty("offset", offsetVals);
             writer.AddArrayProperty("scale", scaleVals);

@@ -256,7 +256,7 @@ namespace GLTFast.Export {
             var exportTexture = new Texture2D(
                 width,
                 height,
-                TextureFormat.RGB24,
+                TextureFormat.ARGB32,
                 false,
                 true);
             exportTexture.ReadPixels(new Rect(0, 0, destRenderTexture.width, destRenderTexture.height), 0, 0);
