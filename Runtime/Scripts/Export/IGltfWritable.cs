@@ -109,7 +109,7 @@ namespace GLTFast.Export {
         /// <param name="uCamera">Unity camera</param>
         /// <param name="cameraId">glTF camera index</param>
         /// <returns>True if camera was successfully created, false otherwise</returns>
-        bool AddCamera(Camera uCamera, out int cameraId);
+        bool AddCamera(UnityEngine.Camera uCamera, out int cameraId);
         
         /// <summary>
         /// Creates a glTF light based on a Unity light
